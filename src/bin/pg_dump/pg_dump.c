@@ -426,6 +426,7 @@ main(int argc, char **argv)
 	char	   *error_detail = NULL;
 	bool		user_compression_defined = false;
 	DataDirSyncMethod sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
+	char *query_str = NULL;
 
 	static DumpOptions dopt;
 
@@ -451,6 +452,7 @@ main(int argc, char **argv)
 		{"schema-only", no_argument, NULL, 's'},
 		{"superuser", required_argument, NULL, 'S'},
 		{"table", required_argument, NULL, 't'},
+		{"query", required_argument, NULL, 'q'},
 		{"exclude-table", required_argument, NULL, 'T'},
 		{"no-password", no_argument, NULL, 'w'},
 		{"password", no_argument, NULL, 'W'},
@@ -504,8 +506,7 @@ main(int argc, char **argv)
 		{"filter", required_argument, NULL, 16},
 		{"exclude-extension", required_argument, NULL, 17},
 
-		{NULL, 0, NULL, 0}
-	};
+		{NULL, 0, NULL, 0}};
 
 	pg_logging_init(argv[0]);
 	pg_logging_set_level(PG_LOG_WARNING);
@@ -535,7 +536,7 @@ main(int argc, char **argv)
 
 	InitDumpOptions(&dopt);
 
-	while ((c = getopt_long(argc, argv, "abBcCd:e:E:f:F:h:j:n:N:Op:RsS:t:T:U:vwWxZ:",
+	while ((c = getopt_long(argc, argv, "abBcCd:e:E:f:F:h:j:n:N:Op:q:RsS:t:T:U:vwWxZ:",
 							long_options, &optindex)) != -1)
 	{
 		switch (c)
@@ -607,6 +608,11 @@ main(int argc, char **argv)
 
 			case 'p':			/* server port */
 				dopt.cparams.pgport = pg_strdup(optarg);
+				break;
+
+			case 'q': /* dump results based onfilter condition */
+				dopt.filterCond = pg_strdup(optarg);
+				dopt.include_everything = false;
 				break;
 
 			case 'R':
@@ -1072,9 +1078,16 @@ main(int argc, char **argv)
 	if (dopt.outputCreateDB)
 		dumpDatabase(fout);
 
-	/* Now the rearrangeable objects. */
-	for (i = 0; i < numObjs; i++)
-		dumpDumpableObject(fout, dobjs[i]);
+	if (query_str != NULL)
+	{
+		dumpQuery(fout, query_str);
+	}
+	else
+	{
+		/* Now the rearrangeable objects. */
+		for (i = 0; i < numObjs; i++)
+			dumpDumpableObject(fout, dobjs[i]);
+	}
 
 	/*
 	 * Set up options info to ensure we dump what we want.
@@ -1185,6 +1198,7 @@ help(const char *progname)
 	printf(_("  -s, --schema-only            dump only the schema, no data\n"));
 	printf(_("  -S, --superuser=NAME         superuser user name to use in plain-text format\n"));
 	printf(_("  -t, --table=PATTERN          dump only the specified table(s)\n"));
+	printf(_("  -q, --query=QUERY			 dump the results of the specified query\n"));
 	printf(_("  -T, --exclude-table=PATTERN  do NOT dump the specified table(s)\n"));
 	printf(_("  -x, --no-privileges          do not dump privileges (grant/revoke)\n"));
 	printf(_("  --binary-upgrade             for use by upgrade utilities only\n"));
@@ -2904,7 +2918,7 @@ makeTableDataInfo(DumpOptions *dopt, TableInfo *tbinfo)
 	tdinfo->dobj.name = tbinfo->dobj.name;
 	tdinfo->dobj.namespace = tbinfo->dobj.namespace;
 	tdinfo->tdtable = tbinfo;
-	tdinfo->filtercond = NULL;	/* might get set later */
+	tdinfo->filtercond = dopt->filterCond;
 	addObjectDependency(&tdinfo->dobj, tbinfo->dobj.dumpId);
 
 	/* A TableDataInfo contains data, of course */
